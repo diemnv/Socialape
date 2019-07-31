@@ -85,16 +85,21 @@ module.exports.commentOnScream = (req, res) => {
     }
 
     const screamId = req.params.screamId;
+    let commentCount;
     db.doc(`/screams/${screamId}`).get()
     .then((doc) => {
         if(!doc.exists) {
             return res.status(404).json({error: 'scream not found'});
         }
+        commentCount = doc.data().commentCount;
         comment.screamId = doc.id;
-        return db.collection('comments').add(comment);
-    })
-    .then(() => {
-        return res.status(200).json(comment);
+        db.collection('comments').add(comment)
+            .then(() => {
+                db.doc(`/screams/${screamId}`).update({commentCount: commentCount++});
+            })
+            .then(() => {
+                return res.status(200).json(comment);
+            })
     })
     .catch(err => {
         return res.status(500).json({error: err.code});
@@ -103,36 +108,33 @@ module.exports.commentOnScream = (req, res) => {
 }
 
 module.exports.likeScream = (req, res) => {
-    let scream;
-    db.doc(`/screams/${req.params.screamId}`).get()
-    .then(doc => {
-        if(!doc.exists) {
-            return res.status(400).json({error: "scream not found"});
+    let scream = {};
+    db.collection('likes').where('screamId', '==', req.params.screamId).where('userHandle', '==', req.user.handle).limit(1).get()
+    .then(data => {
+        if(!data.empty) {
+            return res.status(400).json({error: 'this scream is liked'})
         }
-        scream = doc.data();
-        scream.id = doc.id;
-        return db.collection('likes')
-            .where('screamId', '==', req.params.screamId)
-            .where('userHandle', '==', req.user.handle).limit(1).get();
-    })
-    .then((data) => {
-        if(data.empty) {
-            return db.collection('likes')
-            .add({screamId: scream.id, userHandle: req.user.handle})
-            .then(()=> {
-                scream.likeCount ++;
-                return db.doc(`/screams/${scream.id}`).update({likeCount: scream.likeCount});
+        db.doc(`/screams/${req.params.screamId}`).get()
+        .then(doc => {
+            if(!doc.exists) {
+                return res.status(400).json({error: 'this scream is not exist'});
+            }
+
+            scream = doc.data();
+            scream.id = doc.id;
+            scream.likeCount++;
+            db.doc(`/screams/${req.params.screamId}`).update({likeCount: scream.likeCount})
+            .then(() => {
+                return db.collection('likes').add({screamId: req.params.screamId, userHandle: req.user.handle})
             })
-            .then((doc) => {
-                // console.log(doc.data());
+            .then(() => {
                 return res.status(200).json(scream);
             })
-        } else {
-            return res.status(400).json({error: 'the scream alredy liked'});
-        }
-    })
-    .catch(err => {
-        return res.status(500).json({error: err.code});
+        })
+        .catch(err => {
+            console.log(err);
+            return res.status(500).json({error: err.code});
+        })
     })
 }
 
